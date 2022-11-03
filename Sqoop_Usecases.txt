@@ -1,0 +1,90 @@
+SQOOP USECASES 
+
+1. List Databases which are in MySql
+
+sqoop list-databases --connect jdbc:mysql://localhost --username root --password root;
+
+2. List Tables from custdb database
+sqoop list-tables --connect jdbc:mysql://localhost/custdb --username root --password root;
+
+3. Import Table from SQL to HDFS with 1 mapper:
+sqoop import --connect jdbc:mysql://localhost/custdb --username root --password root -table customer -m 1 -- delete-target-dir ;
+
+4. 3. Import Table from SQL to HDFS with 3 mappers:
+sqoop import --connect jdbc:mysql://localhost/custdb --username root -P -table customer -m 3 \
+--split-by custid --target-dir sqoop_import --delete-target-dir --direct
+
+5. Save using fields terminated and lines terminated by
+sqoop import --connect jdbc:mysql://localhost/custdb --username root --password root -table customer -m 1 --target-dir imp_del --fields-terminated-by '~' --lines-terminated-by '\n' --delete-target-dir;
+
+6. Using Where condition
+sqoop import --connect jdbc:mysql://localhost/custdb --username root --password root --table customer -m 1 --where "city ='banglore' or age>33" --target-dir filtered --delete-target-dir;
+
+7. Using free form query:
+sqoop import --connect jdbc:mysql://localhost/custdb --username root --password root --query " select custid,age,transactamt from customer where (city ='banglore' or age>33) and \$CONDITIONS " --target-dir filtered --delete-target-dir -m 2 --split-by custid;
+
+8. Sqoop saved job
+sqoop job --create myjob2 -- import --connect jdbc:mysql://localhost/custdb --username root --password root --table customer --target-dir savedjob2 --m 1 --incremental append --check-column custid --last-value 0
+
+sqoop job --exec myjob2
+sqoop job --list
+sqoop job --delete myjob2
+
+9. Sqoop export update only
+sqoop export --connect jdbc:mysql://localhost/custdb --username root --password root --table customer_hdfs --export-dir imp_del --fields-terminated-by '~' --lines-terminated-by '\n' --update-key custid --update-mode updateonly;
+
+10. Sqoop export allow insert
+sqoop export --connect jdbc:mysql://localhost/custdb --username root --password root --table customer_hdfs --export-dir imp_del --fields-terminated-by '~' --lines-terminated-by '\n' --update-key custid --update-mode allowinsert;
+
+11. Sqoop Import all tables
+sqoop import-all-tables --connect jdbc:mysql://localhost/custdb --username root --password root --warehouse-dir '/user/hduser/sqoop/testtables' -m 1
+
+12. Import All tables other than excluded tables from a DB :
+sqoop import-all-tables --connect jdbc:mysql://localhost/custdb --username root --password root --warehouse-dir '/user/hduser/sqoop/testtables' --exclude-tables customer_bkp1 -m 1
+
+13. Sqoop evaluation:
+sqoop eval --connect jdbc:mysql://localhost/custdb --username root --password root --query "select * from customer "
+
+14. Batch export:
+sqoop export -Dsqoop.export.statements.per.transaction=10 --connect jdbc:mysql://localhost/custdb --username root --password root --table customer1 --export-dir savedjob1 --batch
+
+15. Import all columns of customer and customer_details tables by joining custid between the 2 tables.
+    Both custid should be named as master_custid and detail_custid from customer and customer_details respectively. 
+    Use column boundary queries using customer.custid column, split using custid
+    Insert null values in category column and age columns import as NA and age a 0 respectively in the hdfs. 
+    Store the output in cust_details hdfs directory. Compress the imported data. Use direct mode to transfer the entire content. Define number of mappers as 3. 
+    Use fetch size 100.
+
+sqoop import --connect jdbc:mysql://localhost/custdb --username root -P --boundary-query "select min(custid), max(custid) from customers" --query 'Select a.custid master_custid,a.firstname,a.age,a.city,b.custid detail_custid,a.createdt,b.fulladdress,category,transactiondt,transactamt from customers a join customer_details b on a.custid=b.custid WHERE $CONDITIONS' --split-by a.custid --target-dir cust_details --null-non-string '0' --null-string 'NA' --compress --direct --num-mappers 3 --fetch-size 100 --delete-target-dir;
+
+16. Import only the subset of columns from the customer table to the HDFS (custid, concatenation of firstname and lastname,age)
+sqoop import --connect jdbc:mysql://localhost/custdb --username root --password root --query " select custid,concat(firstname,' ',lastname),age from customers where \$CONDITIONS " --target-dir cust_exp --delete-target-dir -m 1;
+
+17. Export only subset of the above imported columns to the customer_exp table specifying only these 3 columns. Use batch mode for fast export with the sqoop.export.records.per.statement=5. Use staging table to provide consistent load with the clear staging table option to clean the table before each load.
+
+sqoop export -Dsqoop.export.records.per.statement=5 --connect jdbc:mysql://localhost/custdb --username root --password root --table customer_exp --export-dir cust_exp --batch --staging-table customer_stage --clear-staging-table --columns custid,fullname,age
+
+18. Calling stored procedure in MySql
+sqoop export --connect jdbc:mysql://localhost/custdb --username root --password root --call sp_insert_empdeptinfo --export-dir /user/sqoop/spexport -m 1
+
+19. Import all data from the source by deleting target dir (Delete and load).
+sqoop import --connect jdbc:mysql://127.0.0.1/custdb --username root -P -table customer -m 3 --split-by custid --target-dir sqoop_import --delete-target-dir --direct;
+
+20. Import all data from the source and append to the target dir (Append with all source data, may have duplicates).
+sqoop import --connect jdbc:mysql://127.0.0.1/custdb --username root --password root –table customer -m 3 --split-by city --append --fetch-size 100;
+
+21. Import only (inserted) newly added data from the DB to HDFS and get it appended options used (check column, last value incremental append)
+(Append only with newly added source data, No duplicates loaded in the target)
+
+sqoop import --connect jdbc:mysql://127.0.0.1/custdb --username root --password root -table customer -m 1 --target-dir incrimport --incremental append --check-column custid --last-value 6
+
+22. Import only (inserted and updated) newly added or modified data from the DB to HDFS and appended. (check column, last value, incremental lastmodified)
+(Append only with newly added and updated source data, Duplicates/history loaded in the target- Slowly changing dimension type 2).
+
+sqoop import --connect jdbc:mysql://127.0.0.1/custdb --username root --password root --table customer_lastmodified -m 1 --target-dir incrimportlm --incremental lastmodified --check-column upddt --last-value 2018-10-11 --append
+
+23. Import only (inserted and updated) newly added or modified data from the DB to HDFS and get it merged in the target (insert else update).
+(check column, last value incremental lastmodified --merge-key custid) (insert else update - Slowly Changing Dimension Type 1).
+
+sqoop import --connect jdbc:mysql://127.0.0.1/custdb --username root --password root -table customer_lastmodified -m 1 --target-dir incrimportlm --incremental lastmodified --check-column upddt --last-value 2018-10-12 --merge-key custid
+
